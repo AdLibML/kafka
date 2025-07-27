@@ -2,9 +2,36 @@ import requests
 import time
 import random
 import json
+import os
 from datetime import datetime
 
-API_BASE_URL = "http://localhost:5699"
+def detect_api_endpoint():
+    """Detect which API endpoint is available"""
+    endpoints = [
+        "http://localhost:30081",  # Kubernetes NodePort
+        "http://localhost:5699",   # Docker Compose
+    ]
+    
+    for endpoint in endpoints:
+        try:
+            response = requests.get(f"{endpoint}/health", timeout=3)
+            if response.status_code == 200:
+                print(f"✅ Found API at: {endpoint}")
+                return endpoint
+        except requests.exceptions.RequestException:
+            continue
+    
+    return None
+
+# Auto-detect the API endpoint
+API_BASE_URL = detect_api_endpoint()
+
+if not API_BASE_URL:
+    print("❌ No API endpoint found!")
+    print("💡 Make sure either:")
+    print("   - Docker Compose is running (port 5699)")
+    print("   - Kubernetes is running (port 30081)")
+    exit(1)
 
 def simulate_customer_orders():
     """Simulate customers placing orders"""
@@ -122,7 +149,9 @@ if __name__ == "__main__":
     
     # Check API health first
     if not check_api_health():
-        print("\n💡 To start the services, run: docker compose up -d")
+        print("\n💡 To start the services:")
+        print("   Docker Compose: docker compose up -d")
+        print("   Kubernetes: kubectl apply -f kubernetes/kafka.yaml")
         exit(1)
     
     print("\nChoose simulation:")

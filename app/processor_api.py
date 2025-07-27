@@ -5,6 +5,7 @@ import asyncio
 from fastapi import FastAPI, HTTPException
 from confluent_kafka import Consumer, KafkaException
 import logging
+import os
 import json, random
 from datetime import datetime
 import uvicorn
@@ -32,20 +33,32 @@ class ProcessorStats:
 
 stats = ProcessorStats()
 
-def wait_for_kafka(host="kafka", port=29092, retries=10, delay=2):
+def wait_for_kafka(retries=10, delay=2):
+    # Parse first broker from BOOTSTRAP_SERVERS
+    bootstrap = os.getenv(
+        "BOOTSTRAP_SERVERS",
+        os.getenv("KAFKA_BOOTSTRAP", "kafka1:9092,kafka2:9092,kafka3:9092")
+    )
+    first_host, first_port = bootstrap.split(",")[0].split(":")
     for i in range(1, retries + 1):
         try:
-            s = socket.create_connection((host, port), timeout=1); s.close()
-            logger.info(f"✅ Kafka reachable on {host}:{port} (after {i})")
+            s = socket.create_connection((first_host, int(first_port)), timeout=1)
+            s.close()
+            logger.info(f"✅ Kafka reachable on {first_host}:{first_port} (after {i})")
             return
         except Exception:
             logger.warning(f"⏳ Kafka not ready ({i}/{retries}), retry in {delay}s")
             time.sleep(delay)
-    raise RuntimeError("Kafka non joignable")
+    raise RuntimeError(f"Kafka non joignable at {first_host}:{first_port}")
 
 def create_order_consumer():
+    # Use the same BOOTSTRAP_SERVERS var
+    bootstrap = os.getenv(
+        "BOOTSTRAP_SERVERS",
+        os.getenv("KAFKA_BOOTSTRAP", "kafka1:9092,kafka2:9092,kafka3:9092")
+    )
     c = Consumer({
-      'bootstrap.servers': 'kafka:29092',
+      'bootstrap.servers': bootstrap,
       'group.id': 'order-processing-group',
       'auto.offset.reset': 'earliest'
     })

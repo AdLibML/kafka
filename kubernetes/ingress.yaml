@@ -1,0 +1,62 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kafka-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    # ─── Order & Processor & Kafka-UI under kafka.<node>.nip.io ───────────────
+    - host: kafka.192.168.65.3.nip.io
+      http:
+        paths:
+          - path: /order-api(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: order-api
+                port:
+                  number: 8000
+          - path: /processor-api(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: processor-api
+                port:
+                  number: 8001
+          - path: /kafka-ui(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: kafka-ui
+                port:
+                  number: 8080
+
+    # ─── Dashboard with HTTPS backend ─────────────────────────────────────────
+    - host: dashboard.192.168.65.3.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kubernetes-dashboard
+                port:
+                  number: 443
+      # Add HTTPS annotation specifically for dashboard
+      metadata:
+        annotations:
+          nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+
+    # ─── Portainer ────────────────────────────────────────────────────────────
+    - host: portainer.192.168.65.3.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: portainer
+                port:
+                  number: 9000

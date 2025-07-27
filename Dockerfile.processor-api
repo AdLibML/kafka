@@ -8,15 +8,14 @@ RUN pip install uv
 
 WORKDIR /app
 
-COPY app/ ./app/
-
-# Copy Poetry files
+# Copy Poetry files first
 COPY pyproject.toml poetry.lock ./
 
 # Install dependencies
 RUN uv pip install --system -r pyproject.toml
 
-COPY . .
+# Copy the app files to the correct location
+COPY app/* ./
 
 # Expose port
 EXPOSE 8001

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from confluent_kafka import Producer
+import os
 import json
 import uuid
 from datetime import datetime
@@ -28,7 +29,12 @@ class UserEvent(BaseModel):
 
 # Kafka producer
 def get_kafka_producer():
-    return Producer({'bootstrap.servers': 'kafka:29092'})
+    # Read bootstrap servers from env (compose uses BOOTSTRAP_SERVERS)
+    bootstrap = os.getenv(
+        "BOOTSTRAP_SERVERS",
+        os.getenv("KAFKA_BOOTSTRAP", "kafka1:9092,kafka2:9092,kafka3:9092")
+    )
+    return Producer({'bootstrap.servers': bootstrap})
 
 @app.get("/")
 def read_root():

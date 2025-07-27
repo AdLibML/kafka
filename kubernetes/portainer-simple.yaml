@@ -1,0 +1,62 @@
+# ─── 1) Namespace for Portainer
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: portainer
+
+---
+# ─── 2) Deployment of Portainer CE (simplified)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portainer
+  namespace: portainer
+  labels:
+    app: portainer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: portainer
+  template:
+    metadata:
+      labels:
+        app: portainer
+    spec:
+      containers:
+        - name: portainer
+          image: portainer/portainer-ce:latest
+          ports:
+            - containerPort: 9000
+              name: http
+            - containerPort: 9443
+              name: https
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+
+---
+# ─── 3) Service to Expose Portainer (NodePort)
+apiVersion: v1
+kind: Service
+metadata:
+  name: portainer
+  namespace: portainer
+spec:
+  type: NodePort
+  selector:
+    app: portainer
+  ports:
+    - name: http
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+      nodePort: 30090
+    - name: https
+      port: 9443
+      targetPort: 9443
+      protocol: TCP
+      nodePort: 30443 
