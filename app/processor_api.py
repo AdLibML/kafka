@@ -1,12 +1,11 @@
-import logging
-from fastapi import FastAPI, HTTPException
-from kafka import KafkaConsumer
-from kafka.errors import NoBrokersAvailable
-import json
+import socket
 import time
-import random
 import threading
 import asyncio
+from fastapi import FastAPI, HTTPException
+from confluent_kafka import Consumer, KafkaException
+import logging
+import json, random
 from datetime import datetime
 import uvicorn
 from contextlib import asynccontextmanager
@@ -33,37 +32,50 @@ class ProcessorStats:
 
 stats = ProcessorStats()
 
+def wait_for_kafka(host="kafka", port=29092, retries=10, delay=2):
+    for i in range(1, retries + 1):
+        try:
+            s = socket.create_connection((host, port), timeout=1); s.close()
+            logger.info(f"✅ Kafka reachable on {host}:{port} (after {i})")
+            return
+        except Exception:
+            logger.warning(f"⏳ Kafka not ready ({i}/{retries}), retry in {delay}s")
+            time.sleep(delay)
+    raise RuntimeError("Kafka non joignable")
+
 def create_order_consumer():
-    """Create Kafka consumer subscribed to both topics."""
-    consumer = KafkaConsumer(
-        bootstrap_servers=['kafka:29092'],
-        value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-        group_id='order-processing-group',
-        auto_offset_reset='earliest'
-    )
-    # subscribe() mutates and returns None, so call it, then return the consumer
-    consumer.subscribe(['orders', 'user-events'])
-    return consumer
+    c = Consumer({
+      'bootstrap.servers': 'kafka:29092',
+      'group.id': 'order-processing-group',
+      'auto.offset.reset': 'earliest'
+    })
+    c.subscribe(['orders','user-events'])
+    return c
 
 def process_orders_background():
-    """Background thread function to process incoming Kafka messages."""
     try:
         consumer = create_order_consumer()
-    except Exception:
+    except KafkaException as e:
+        logger.error(f"⛔️ Échec création consumer: {e}")
         processor_state["running"] = False
         return
 
-    logger.info("🏭 Starting order processing service...")
+    logger.info("🏭 Starting order processing service…")
     try:
-        for message in consumer:
-            if not processor_state["running"]:
-                logger.info("🛑 Processor stopped, exiting loop")
-                break
+        while processor_state["running"]:
+            msg = consumer.poll(1.0)
+            if msg is None:
+                continue
+            if msg.error():
+                logger.error(f"Kafka error: {msg.error()}")
+                continue
 
-            # Dispatch by topic
-            if message.topic == "orders":
+            data = json.loads(msg.value().decode('utf-8'))
+            topic = msg.topic()
+
+            if topic == 'orders':
                 try:
-                    order = message.value
+                    order = data
                     logger.info(f"📦 Processing order: {order['order_id']}")
 
                     processing_time = random.uniform(1, 3)
@@ -98,26 +110,25 @@ def process_orders_background():
                     logger.warning(f"❌ Malformed order message: missing {ke}")
                     continue
 
-            elif message.topic == "user-events":
+            elif topic == 'user-events':
                 try:
-                    event = message.value
+                    event = data
                     logger.info(f"📰 Processing user-event: {event}")
                     # … votre logique de traitement d’user-event …
                 except Exception as ue:
                     logger.exception(f"❌ Error in user-event handler: {ue}")
                 continue
-            else:
-                logger.debug(f"Ignoring topic {message.topic}")
-                continue
 
+            else:
+                logger.debug(f"Ignoring topic {topic}")
+                continue
     except Exception as e:
         logger.exception(f"❌ Error in processor: {e}")
     finally:
         logger.info("🔌 Closing Kafka consumer…")
         consumer.close()
-        processor_state["running"] = False
-        logger.info("🛑 Order processor stopped")
 
+        
 def auto_start_processor():
     """Start the processor thread if not already running."""
     if processor_state["running"]:
@@ -130,22 +141,25 @@ def auto_start_processor():
     processor_state["thread"] = thread
     thread.start()
     logger.info("✅ Order processor thread started!")
+    
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: wait for Kafka and start processor
-    logger.info("📡 Waiting for Kafka to be ready...")
-    await asyncio.sleep(5)
+    logger.info("📡 Waiting for Kafka to be ready (connectivity check)…")
+    # on bloque dans un thread (socket + sleep)
+    await asyncio.to_thread(wait_for_kafka)
     auto_start_processor()
     try:
         yield
     finally:
-        # Shutdown: stop processor
-        logger.info("🛑 Shutting down processor...")
+        logger.info("🛑 Shutting down processor…")
         processor_state["running"] = False
 
-# FastAPI app initialization
-app = FastAPI(title="Order Processor API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="Order Processor API",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 @app.get("/")
 def read_root():

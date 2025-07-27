@@ -1,10 +1,10 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from kafka import KafkaProducer
+from confluent_kafka import Producer
 import json
 import uuid
 from datetime import datetime
 from typing import Optional
+from pydantic import BaseModel
 import uvicorn
 
 app = FastAPI(title="Order Processing API", version="1.0.0")
@@ -28,11 +28,7 @@ class UserEvent(BaseModel):
 
 # Kafka producer
 def get_kafka_producer():
-    return KafkaProducer(
-        bootstrap_servers=['kafka:29092'],
-        key_serializer=lambda k: k.encode('utf-8'),
-        value_serializer=lambda v: json.dumps(v).encode('utf-8')
-    )
+    return Producer({'bootstrap.servers': 'kafka:29092'})
 
 @app.get("/")
 def read_root():
@@ -60,9 +56,12 @@ async def create_order(order: OrderRequest):
         }
         
         # Send to Kafka with key
-        producer.send('orders', key=order_id, value=order_event)
+        producer.produce(
+          topic='orders',
+          key=order_id,
+          value=json.dumps(order_event).encode('utf-8')
+        )
         producer.flush()
-        producer.close()
         
         return OrderResponse(
             order_id=order_id,
@@ -81,23 +80,24 @@ async def track_user_event(event: UserEvent):
         
         # Create user event
         event_id = str(uuid.uuid4())
-        user_event = {
-            "event_id": event_id,
-            "user_id": event.user_id,
-            "action": event.action,
-            "details": event.details or {},
-            "timestamp": datetime.now().isoformat()
-        }
+        # .dict() is deprecated in Pydantic v2, use model_dump()
+        payload = event.model_dump()
+        payload["event_id"] = event_id
+        payload["timestamp"] = datetime.now().isoformat()
         
         # Send to Kafka with key
-        producer.send('user-events', key=event_id, value=user_event)
+        producer.produce(
+            topic="user-events",
+            key=event_id,
+            value=json.dumps(payload).encode("utf-8")
+        )
         producer.flush()
-        producer.close()
+        # confluent_kafka.Producer does not need explicit close()
         
         return {"status": "success", "message": "Event tracked successfully"}
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to track event: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to track event: {e}")
 
 @app.get("/health")
 def health_check():

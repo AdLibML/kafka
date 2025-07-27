@@ -116,3 +116,21 @@ For production use, consider:
 4. Setting up monitoring and alerting
 5. Using external storage for persistent volumes
 6. Implementing proper backup strategies
+
+## Application Services
+
+In addition to the Kafka cluster, this `docker-compose` starts two FastAPI services:
+
+- **Order API**  
+  • URL: http://localhost:8000  
+  • Exposed port: `8000` → container `8000`  
+- **Processor API**  
+  • URL: http://localhost:5698  
+  • Exposed port: `5698` → container `8001`
+
+### Start everything
+
+```bash
+# From the repo root
+docker-compose up -d
+```
